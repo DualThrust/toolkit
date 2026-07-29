@@ -10,14 +10,16 @@
 
 ```
 toolkit/
+├── deploy.py                   # 自动部署脚本
 ├── skills/                     # Skill — 复制到项目 .agents/skills/ 使用
 │   ├── workflows/              # 工作流技能（源自 obra/superpowers）
 │   └── qt/                     # Qt 开发技能（源自 TheQtCompanyRnD/agent-skills）
 │       └── references/         # 审查清单、常见错误等参考文件
 │
-├── instructions/               # File Instructions — 复制到 VS Code prompts/ 目录
+├── instructions/               # File Instructions — 复制到 .github/instructions/ 及 VS Code prompts/
 │   ├── cpp.instructions.md     # C++ / Qt 编码规范
-│   └── qml.instructions.md     # QML 编码规范
+│   ├── qml.instructions.md     # QML 编码规范
+│   └── python.instructions.md  # Python 编码规范
 │
 └── config/                     # 编辑器/工具配置参考
     └── clang-format/
@@ -26,27 +28,56 @@ toolkit/
 
 ## 使用方式
 
-### 安装 Skill 到项目
+### 一键部署（推荐）
+
+使用 `deploy.py` 脚本自动将 toolkit 内容部署到目标项目：
 
 ```bash
-# 将需要的技能复制到目标项目的 .agents/skills/ 目录
-cp -r skills/workflows/brainstorming 目标项目/.agents/skills/
-cp -r skills/qt/qt-cpp-review 目标项目/.agents/skills/
+# 交互模式 — 从预置列表中选择目标项目
+python deploy.py
+
+# 按别名部署
+python deploy.py --target keeprix
+
+# 按路径部署
+python deploy.py --target /path/to/your/project
+
+# 预览（不实际复制）
+python deploy.py --target keeprix --dry-run
+
+# 强制覆盖已有文件
+python deploy.py --target keeprix --update
 ```
 
-### 安装 Instructions（全局生效）
+脚本自动处理以下映射：
+
+| 源 (toolkit) | 目标项目 |
+|---|---|
+| `skills/workflows/*` | `.agents/skills/*` |
+| `skills/qt/*` (除 references) | `.agents/skills/*` |
+| `skills/qt/references/*` | `.agents/references/*` |
+| `instructions/*.md` | `.github/instructions/*` |
+| `instructions/*.md` | VS Code `%APPDATA%/Code/User/prompts/` |
+
+### 手动部署（备用）
 
 ```bash
-# 复制到 VS Code 用户级 prompts 目录
+# Skills — 复制到目标项目的 .agents/skills/
+cp -r skills/workflows/* 目标项目/.agents/skills/
+cp -r skills/qt/qt-cpp-review 目标项目/.agents/skills/   # 按需选择 Qt 技能
+
+# Instructions — 复制到项目的 .github/instructions/
+cp instructions/*.md 目标项目/.github/instructions/
+
+# Instructions — 复制到 VS Code 用户级 prompts（全局生效）
 cp instructions/*.md "$env:APPDATA\Code\User\prompts\"
 ```
 
-### 同步更新
+### 同步上游更新后重新部署
 
 ```bash
 cd ~/Projects/Personal/toolkit && git pull
-cp -r skills/workflows/brainstorming/* 目标项目/.agents/skills/brainstorming/
-cp instructions/*.md "$env:APPDATA\Code\User\prompts\"
+python deploy.py --target keeprix --update
 ```
 
 ## 上游来源
