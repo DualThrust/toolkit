@@ -19,6 +19,7 @@ toolkit → 目标项目 自动部署脚本
 import argparse
 import json
 import os
+import re
 import shutil
 import sys
 import time
@@ -206,8 +207,16 @@ def resolveTarget(targetArg: str | None) -> Path:
                 if candidate.exists():
                     return candidate.resolve()
         print(f"[ERROR] 目标不存在或未记录: {targetArg}")
-        print(f"  提示: 先用交互模式 (直接运行 python deploy.py) 部署一次，")
-        print(f"        或输入完整路径。")
+        # 诊断：是否像 Windows 路径但反斜杠被吞了？
+        if re.match(r"^[A-Za-z]:[^\\]", targetArg):
+            print(f"  💡 看起来像一个 Windows 路径，但反斜杠丢失了。")
+            print(f"     在 PowerShell 中请用引号包裹路径:")
+            print(f"       python deploy.py -t \"{targetArg[:2]}{chr(92)}{targetArg[2:]}\"")
+            print(f"     或使用正斜杠:")
+            print(f"       python deploy.py -t \"{targetArg[:2]}/{targetArg[2:]}\"")
+        else:
+            print(f"  提示: 先用交互模式 (直接运行 python deploy.py) 部署一次，")
+            print(f"        或输入完整路径。")
         sys.exit(1)
 
     # 交互模式 — 读取已部署项目（自动清理失效条目）
