@@ -56,6 +56,15 @@ python deploy.py --target keeprix_dev --force
 
 # 列出所有已部署项目
 python deploy.py --list-deployed
+
+# ★ 重新部署所有已部署项目
+python deploy.py --redeploy
+
+# 强制刷新所有项目
+python deploy.py --redeploy --force
+
+# 预览
+python deploy.py --redeploy --dry-run
 ```
 
 脚本自动处理以下映射：
@@ -90,12 +99,23 @@ cp -r skills/qt/* 目标项目/.agents/skills/   # 按需选择 Qt 技能
 cp instructions/*.md 目标项目/.github/instructions/
 ```
 
-### 同步上游更新后重新部署
+### 重新部署所有项目
+
+```bash
+# 读取 deploy-state.json，对每个已部署项目重新部署
+cd ~/Projects/Personal/toolkit
+python deploy.py --redeploy                    # 增量更新
+python deploy.py --redeploy --force            # 强制刷新
+python deploy.py --redeploy --dry-run          # 预览
+```
+
+> 路径已不存在的项目会自动跳过。`--redeploy` 和 `--list-deployed` 配合使用——一个查看已部署项目，一个重新部署全部。
+
+也可以先拉取最新 toolkit 再重新部署：
 
 ```bash
 cd ~/Projects/Personal/toolkit && git pull
-python deploy.py --target keeprix_dev --update   # 增量更新
-python deploy.py --target keeprix_dev --force    # 完整刷新
+python deploy.py --redeploy
 ```
 
 ## 上游来源

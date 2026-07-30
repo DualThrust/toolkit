@@ -14,6 +14,7 @@ toolkit → 目标项目 自动部署脚本
     python deploy.py --target <路径> --update      # 更新模式（覆盖已有文件）
     python deploy.py --target <路径> --force       # 强制重新部署
     python deploy.py --list-deployed               # 列出所有已部署项目
+    python deploy.py --redeploy                     # 重新部署所有已部署项目
 """
 
 import argparse
@@ -512,6 +513,7 @@ def _build_parser() -> argparse.ArgumentParser:
   python deploy.py --target <路径> --update      # 覆盖已有
   python deploy.py --target <路径> --force       # 强制刷新
   python deploy.py --list-deployed               # 列出已部署项目
+  python deploy.py --redeploy                   # 重新部署所有已部署项目
         """,
     )
     parser.add_argument("-t", "--target", help="目标项目路径或已记录的名称/路径")
@@ -531,7 +533,75 @@ def _build_parser() -> argparse.ArgumentParser:
         "--list-deployed", action="store_true",
         help="列出所有已部署项目及其路径、上次部署时间，然后退出",
     )
+    parser.add_argument(
+        "--redeploy", action="store_true",
+        help="重新部署所有已部署项目：遍历 deploy-state.json 中的每个项目，重新部署（默认增量更新，加 --force 强制刷新）",
+    )
     return parser
+
+
+def _run_redeploy(*, dry_run: bool = False, force: bool = False) -> None:
+    """重新部署所有已部署项目。
+
+    遍历 deploy-state.json 中的每个项目，执行 --update 模式部署。
+    结合 --force 可强制刷新（先删旧目录再重新复制）。
+    """
+    mode = "强制部署" if force else "更新"
+    toolkit_root = _get_toolkit_root()
+    print(f"Toolkit 根目录: {toolkit_root}")
+
+    # 1. 检查已部署项目
+    _print_step("1/2", "检查已部署项目")
+    deployed = list_deployed_projects()
+    if not deployed:
+        print("\n  没有已部署的项目。请先运行 deploy.py 部署至少一个项目。")
+        return
+    for record in deployed.values():
+        icon = "[x]" if not Path(record.path).exists() else "[+]"
+        print(f"  {icon} {record.name}  ({record.path})")
+    print()
+
+    # 2. 逐个部署
+    _print_step("2/2", f"{mode}所有项目")
+    success_count = 0
+    fail_count = 0
+    for record in deployed.values():
+        target = Path(record.path)
+        if not target.exists():
+            print(f"\n  [SKIP] 路径不存在，跳过: {record.name} ({record.path})")
+            fail_count += 1
+            continue
+
+        label = record.name
+        print(f"\n  --- {label} ---")
+
+        if force and not dry_run:
+            print("  [FORCE] 删除旧目录...")
+            clean_target(target, dry_run=False)
+
+        try:
+            all_stats: dict[str, Any] = {}
+            all_stats.update(
+                deploy_skills(toolkit_root, target, update=True, dry_run=dry_run)
+            )
+            all_stats.update(
+                deploy_references(toolkit_root, target, update=True, dry_run=dry_run)
+            )
+            all_stats.update(
+                deploy_instructions(toolkit_root, target, update=True, dry_run=dry_run)
+            )
+
+            if not dry_run:
+                record_deployment(str(target), all_stats, name=label)
+
+            success_count += 1
+        except Exception as e:
+            print(f"  [ERROR] 部署失败: {e}")
+            fail_count += 1
+
+    print(f"\n{'=' * 60}")
+    if dry_run:
+        suffix = " [DRY-RUN]"
 
 
 def _run_list_deployed() -> None:
@@ -616,6 +686,13 @@ def main() -> None:
             print("[ERROR] --list-deployed 是独占参数，不能与 --target/--update/--force/--dry-run 同时使用")
             sys.exit(2)
         _run_list_deployed()
+        return
+
+    if args.redeploy:
+        if args.target:
+            print("[ERROR] --redeploy 不能与 --target 同时使用")
+            sys.exit(2)
+        _run_redeploy(dry_run=args.dry_run, force=args.force)
         return
 
     _run_deploy(args)

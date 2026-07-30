@@ -11,6 +11,7 @@ description: Qt/C++ 编码规范 — 命名、声明顺序、文件结构
 
 ## 核心原则
 
+- **可读性和可调试性优先**：现代 CPU 下，清晰的代码逻辑比微小的性能差异更有价值。写给人读的代码，顺便给机器跑
 - **格式交给 .clang-format**：括号位置、缩进、空格由工具统一管理
 - **类声明顺序固定**：Q_OBJECT → public → signals → slots → protected → private，成员变量在各节末尾
 - **实现与声明顺序一致**：.cpp 中的实现严格按照 .h 的声明顺序排列，不混杂
@@ -760,6 +761,21 @@ Qt 的隐式共享类型（`QString`、`QByteArray`、`QVector` 等）按值传�
 ```cpp
 QString displayName() const;
 ```
+
+### 禁止函数调用嵌套
+
+禁止将函数调用作为参数直接传入另一个函数。函数返回值应先用局部变量接收，再作为参数传递：
+
+```cpp
+// ✅ 局部变量中转 — 可断点、可日志、可复用
+auto result = processInput(rawData);
+handleResult(result);
+
+// ❌ 嵌套调用 — 调试时无法查看中间值，异常时不知道哪一层崩了
+handleResult(processInput(rawData));
+```
+
+> 嵌套调用在调试时无法 step 检查中间结果，且一旦崩溃很难定位是内层还是外层出了问题。局部变量中转成本极低，收益显著。
 
 ### 非单行函数
 

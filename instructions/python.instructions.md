@@ -14,6 +14,7 @@ description: Python 编码规范 — PEP 8 snake_case，PySide6 适配说明
 
 ## 核心原则
 
+- **可读性和可调试性优先**：清晰的逻辑比微小的性能差异更有价值。写给人读的代码，顺便给机器跑
 - **格式交给 Black**：行宽 100，双引号，4 空格缩进，isort 排序 import
 - **PEP 8 命名**：函数/变量 snake_case，类 PascalCase，常量 UPPER_SNAKE
 - **类型注解全覆盖**：所有函数签名必须有参数类型和返回类型
