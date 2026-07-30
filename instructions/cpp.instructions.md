@@ -47,7 +47,7 @@ description: Qt/C++ 编码规范 — 命名、声明顺序、文件结构
 | `enum`（配合 `Q_ENUM`）            | `enum class`（无法注册到元对象系统） |
 | `using` 别名（简化长类型）         | `typedef` / 手写长类型               |
 | 范围 for（`for (auto &x : list)`） | 下标 for（`for (int i = 0; ...)`）   |
-| `std::move` / 传值                 | 手动拷贝                             |
+| 传值 + RVO/NRVO                    | 手动拷贝 / `return std::move(...)`    |
 | `nullptr`                          | `NULL` / `0`                         |
 | `auto`                             | 显式冗长类型                         |
 | `constexpr`                        | `#define` 常量                       |
@@ -132,6 +132,7 @@ private:
 | 类名          | PascalCase，项目前缀   | `KRDLWorker`, `KRCRThread`                  |
 | 文件名        | PascalCase，与类名一致 | `KRDLWorker.h` / `.cpp`                     |
 | 枚举类型 & 值 | PascalCase             | `enum State { Idle, Checking, Decrypting }` |
+| `using` 别名  | PascalCase，语义化后缀 | `AnswerPageList`, `StringMap`, `Callback`   |
 | **函数**      |                        |                                             |
 | 函数 / 方法   | camelCase              | `setIsRunning()`, `processNextTask()`       |
 | **变量**      |                        |                                             |
@@ -144,6 +145,8 @@ private:
 | 宏 / 导出宏   | 大写 + 下划线          | `KEEPRIX_DOWNLOAD_API`, `Q_DECL_EXPORT`     |
 
 > **常量定义规则**：常量必须用 `constexpr` 或 `static const` 声明，**禁止使用 `#define` 定义常量**。`k_` 前缀表示不可变，与 `m_` / `s_` 前缀系统保持一致。对于 literal type（int、double、enum 等）用 `constexpr`，对于非 literal type（QString、QColor 等）用 `static const` / `inline static const`。宏（预处理器符号）不受此规则约束，仍用大写 + 下划线。
+>
+> **`using` 别名规则**：以**原类型名 + 语义后缀**命名。容器别名用 `原类型 + List/Map/Hash`（`AnswerPageList`、`StringMap`），函数别名用 `原类型 + Fn` 或功能名（`Callback`、`ErrorHandler`）。不发明与原类型无关的名称。
 
 ### 成员变量前缀：`m_` / `s_`
 
@@ -714,12 +717,41 @@ void setRate(qreal rate);
 void setName(QString name);
 void setError(QString error);
 
-// ❌ 避免 const 引用
+// ❌ 禁止 const 引用
 void setRate(const qreal &rate);
 void setName(const QString &name);
 ```
 
-> 对现代 C++ 和 Qt 的隐式共享类型，按值传递在大多数场景下性能与 const 引用相当，且语义更简洁、避免生命周期问题。
+> 对现代 C++ 和 Qt 的隐式共享类型，按值传递在大多数场景下性能与 const 引用相当，且语义更简洁、避免生命周期问题。对于 `std::unique_ptr` 等移动-only 类型，显式按值传递即可。
+
+### 不要滥用 std::move
+
+编译器（C++17 起）的 RVO / NRVO 和隐式移动已能处理绝大多数场景，显式 `std::move` 反而可能阻止编译器优化（如 RVO）或引入不必要的移动构造：
+
+```cpp
+// ✅ 让编译器自己处理
+Widget createWidget() {
+    Widget w;
+    return w;           // NRVO 自动优化，不需要 std::move
+}
+
+void process() {
+    auto w = createWidget();  // 隐式移动或 RVO
+    container.push_back(std::move(w));  // ✅ 这里是有意转移所有权
+}
+
+// ❌ 多余的 std::move
+Widget createWidget() {
+    Widget w;
+    return std::move(w);  // 阻止 NRVO，强制走移动构造
+}
+```
+
+> `std::move` 只在需要**明确转移所有权**时使用（如传入 `std::unique_ptr`、存入容器后不再使用原变量）。作为通用返回值或局部变量传递时不需要。
+
+### 对 Qt 类型的特别说明
+
+Qt 的隐式共享类型（`QString`、`QByteArray`、`QVector` 等）按值传递本身已是 COW 引用计数，`std::move` 对它们的收益极低，反而增加代码噪声。保持一致即可。
 
 ### const 正确性
 
