@@ -1,2 +1,6 @@
 # 部署状态记录 — 每个机器独立，不入库
 deploy-state.json
+
+# 部署目标目录（.agents = skills/references, .github/instructions = 项目级 instructions）
+.agents/
+.github/

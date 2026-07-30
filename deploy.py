@@ -18,149 +18,127 @@ toolkit → 目标项目 自动部署脚本
 
 import argparse
 import json
-import os
 import re
 import shutil
 import sys
 import time
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Any
 
 
 # ============================================================
 # 常量
 # ============================================================
 
-# 部署状态文件名（存放在 toolkit 根目录）
 DEPLOY_STATE_FILE = "deploy-state.json"
 
 
-# VS Code 用户级 prompts 目录（instructions 也会部署到这里）
-def _get_vscode_prompts_dir() -> str:
-    """跨平台获取 VS Code prompts 目录。"""
-    if sys.platform == "win32" and "APPDATA" in os.environ:
-        base = os.environ["APPDATA"]
-    elif sys.platform == "darwin":
-        base = os.path.expanduser("~/Library/Application Support")
-    else:
-        base = os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config"))
-    return os.path.join(base, "Code", "User", "prompts")
+# ============================================================
+# 类型定义
+# ============================================================
 
-VSCODE_PROMPTS_DIR: str = _get_vscode_prompts_dir()
+
+@dataclass
+class CopyResult:
+    """copy_dir 的返回结果。"""
+
+    copied: int = 0
+    skipped: int = 0
+
+
+@dataclass
+class DeployRecord:
+    """deploy-state.json 中的单条记录。"""
+
+    name: str
+    path: str
+    last_deployed_iso: str
 
 
 # ============================================================
 # 部署状态管理
 # ============================================================
 
-def _stateFilePath() -> Path:
-    return getToolkitRoot() / DEPLOY_STATE_FILE
+
+def _state_file_path() -> Path:
+    """返回 deploy-state.json 的完整路径。"""
+    return _get_toolkit_root() / DEPLOY_STATE_FILE
 
 
-def _normalizePath(p: str) -> str:
-    """统一路径格式：绝对路径 + 系统原生分隔符（Windows 用反斜杠）。"""
-    return os.path.normpath(os.path.abspath(p))
+def _normalize_path(p: str) -> str:
+    """统一路径格式：绝对路径 + 系统原生分隔符。"""
+    return str(Path(p).resolve())
 
 
-def loadDeployState() -> dict:
+def load_deploy_state() -> dict[str, Any]:
     """加载部署状态文件，不存在时返回空字典。
+
     自动合并因路径格式不同导致的重复条目（以最新时间为准）。
     """
-    fp = _stateFilePath()
-    if fp.exists():
-        try:
-            with open(fp, "r", encoding="utf-8") as f:
-                raw: dict = json.load(f)
-        except (json.JSONDecodeError, OSError):
-            return {}
+    fp = _state_file_path()
+    if not fp.exists():
+        return {}
 
-        # 按标准化路径去重合并
-        merged: dict = {}
-        for path, info in raw.items():
-            norm = _normalizePath(path)
-            if norm in merged:
-                # 保留较新的记录
-                old = merged[norm].get("last_deployed", 0)
-                new = info.get("last_deployed", 0)
-                if new > old:
-                    merged[norm] = info
-            else:
+    try:
+        with open(fp, "r", encoding="utf-8") as f:
+            raw: dict[str, Any] = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+    merged: dict[str, Any] = {}
+    for path, info in raw.items():
+        norm = _normalize_path(path)
+        if norm in merged:
+            old_ts = merged[norm].get("last_deployed", 0)
+            new_ts = info.get("last_deployed", 0)
+            if new_ts > old_ts:
                 merged[norm] = info
+        else:
+            merged[norm] = info
 
-        # 如果发生了合并，写回文件
-        if len(merged) != len(raw):
-            saveDeployState(merged)
+    if len(merged) != len(raw):
+        save_deploy_state(merged)
 
-        return merged
-    return {}
+    return merged
 
 
-def saveDeployState(state: dict) -> None:
+def save_deploy_state(state: dict[str, Any]) -> None:
     """保存部署状态到文件。"""
-    fp = _stateFilePath()
+    fp = _state_file_path()
     fp.parent.mkdir(parents=True, exist_ok=True)
     with open(fp, "w", encoding="utf-8") as f:
         json.dump(state, f, indent=2, ensure_ascii=False)
 
 
-def recordDeployment(targetPath: str, stats: dict, name: str = "") -> None:
-    """
-    记录一次部署到状态文件。
-
-    targetPath: 目标项目的绝对路径
-    stats: 统计信息，如 {"skills": 10, "references": 3}
-    name: 项目可读名称（可选，从目录名自动推断）
-    """
-    resolved = _normalizePath(targetPath)
-    state = loadDeployState()
+def record_deployment(
+    target_path: str,
+    stats: dict[str, Any],
+    name: str = "",
+) -> None:
+    """记录一次部署到状态文件。"""
+    resolved = _normalize_path(target_path)
+    state = load_deploy_state()
     state[resolved] = {
         "name": name or Path(resolved).name,
         "last_deployed": time.time(),
         "last_deployed_iso": datetime.now().isoformat(),
         "stats": stats,
     }
-    saveDeployState(state)
+    save_deploy_state(state)
 
 
-def isPreviouslyDeployed(targetPath: str) -> Optional[dict]:
+def is_previously_deployed(target_path: str) -> dict[str, Any] | None:
     """检查目标路径是否曾部署过。返回状态记录或 None。"""
-    state = loadDeployState()
-    resolved = _normalizePath(targetPath)
+    state = load_deploy_state()
+    resolved = _normalize_path(target_path)
     return state.get(resolved)
 
 
-def listDeployedProjects() -> dict:
-    """
-    从 deploy-state.json 读取所有已部署项目。
-    自动清理路径已不存在的失效条目。
-    返回 { "可读名称": {"path": "绝对路径", "last_deployed_iso": "...", ...} }
-    按最后部署时间倒序排列。
-    """
-    pruneStaleEntries()
-    state = loadDeployState()
-    # 按时间倒序
-    items = sorted(
-        state.items(),
-        key=lambda kv: kv[1].get("last_deployed", 0),
-        reverse=True,
-    )
-    result = {}
-    for path, info in items:
-        label = info.get("name", "") or Path(path).name
-        result[label] = {
-            "path": path,
-            "last_deployed_iso": info.get("last_deployed_iso", "未知"),
-        }
-    return result
-
-
-def pruneStaleEntries() -> int:
-    """
-    清理 deploy-state.json 中路径已不存在的条目。
-    返回被清理的条目数。
-    """
-    state = loadDeployState()
+def prune_stale_entries() -> int:
+    """清理 deploy-state.json 中路径已不存在的条目。返回被清理的条目数。"""
+    state = load_deploy_state()
     stale = [path for path in state if not Path(path).exists()]
     if not stale:
         return 0
@@ -169,71 +147,59 @@ def pruneStaleEntries() -> int:
         name = state[path].get("name", Path(path).name)
         print(f"  [CLEAN] 路径不存在，已从记录中移除: {name} ({path})")
         del state[path]
-    saveDeployState(state)
+    save_deploy_state(state)
     return len(stale)
 
 
-def formatTimestamp(ts: float) -> str:
-    """将时间戳格式化为可读字符串。"""
-    return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
+def list_deployed_projects() -> dict[str, DeployRecord]:
+    """从 deploy-state.json 读取所有已部署项目。
+
+    自动清理失效条目，返回按时间倒序排列的 DeployRecord 字典。
+    """
+    prune_stale_entries()
+    state = load_deploy_state()
+
+    items = sorted(
+        state.items(),
+        key=lambda kv: kv[1].get("last_deployed", 0),
+        reverse=True,
+    )
+
+    result: dict[str, DeployRecord] = {}
+    for path, info in items:
+        label: str = info.get("name", "") or Path(path).name
+        result[label] = DeployRecord(
+            name=label,
+            path=path,
+            last_deployed_iso=info.get("last_deployed_iso", "未知"),
+        )
+    return result
 
 
 # ============================================================
-# 核心逻辑
+# 路径解析
 # ============================================================
 
-def getToolkitRoot() -> Path:
+
+def _get_toolkit_root() -> Path:
     """获取 toolkit 仓库根目录（即本脚本所在目录）。"""
     return Path(__file__).resolve().parent
 
 
-def resolveTarget(targetArg: str | None) -> Path:
-    """
-    解析目标项目路径。
-
-    数据来源（按优先级）:
-      1. --target 参数（直接路径或已记录的名称/路径）
-      2. 交互模式 — 从 deploy-state.json 读取已部署项目列表
-    """
-    if targetArg:
-        p = Path(targetArg)
-        if p.exists():
-            return p.resolve()
-        # 尝试匹配已部署记录中的名称或路径
-        deployed = listDeployedProjects()
-        for name, info in deployed.items():
-            if targetArg.lower() == name.lower() or targetArg.lower() == info["path"].lower():
-                candidate = Path(info["path"])
-                if candidate.exists():
-                    return candidate.resolve()
-        print(f"[ERROR] 目标不存在或未记录: {targetArg}")
-        # 诊断：是否像 Windows 路径但反斜杠被吞了？
-        if re.match(r"^[A-Za-z]:[^\\]", targetArg):
-            print(f"  💡 看起来像一个 Windows 路径，但反斜杠丢失了。")
-            print(f"     在 PowerShell 中请用引号包裹路径:")
-            print(f"       python deploy.py -t \"{targetArg[:2]}{chr(92)}{targetArg[2:]}\"")
-            print(f"     或使用正斜杠:")
-            print(f"       python deploy.py -t \"{targetArg[:2]}/{targetArg[2:]}\"")
-        else:
-            print(f"  提示: 先用交互模式 (直接运行 python deploy.py) 部署一次，")
-            print(f"        或输入完整路径。")
-        sys.exit(1)
-
-    # 交互模式 — 读取已部署项目（自动清理失效条目）
-    deployed = listDeployedProjects()
+def _pick_from_list(deployed: dict[str, DeployRecord]) -> Path:
+    """交互模式：从已部署列表中选择目标项目，或手动输入新路径。"""
+    labels = list(deployed.keys())
 
     if deployed:
         print("已部署的目标项目 (deploy-state.json):")
-        labels = list(deployed.keys())
         for i, label in enumerate(labels, 1):
-            info = deployed[label]
-            # 走到这里路径一定存在（pruneStaleEntries 已清理过）
-            print(f"  [{i}] {label}  ✅ 上次部署: {info['last_deployed_iso']}")
-            print(f"       {info['path']}")
+            record = deployed[label]
+            print(f"  [{i}] {label}  [+] 上次部署: {record.last_deployed_iso}")
+            print(f"       {record.path}")
     else:
         print("尚未部署过任何项目。")
 
-    print(f"  [0] 输入新的目标路径")
+    print("  [0] 输入新的目标路径")
 
     try:
         choice = input("\n请选择目标项目 (输入序号): ").strip()
@@ -242,21 +208,16 @@ def resolveTarget(targetArg: str | None) -> Path:
         sys.exit(0)
 
     if choice == "0" or not deployed:
-        path = input("请输入目标项目路径: ").strip()
-        p = Path(path)
-        if not p.exists():
-            print(f"[ERROR] 路径不存在: {path}")
-            sys.exit(1)
-        return p.resolve()
+        return _prompt_manual_path()
 
     try:
         idx = int(choice) - 1
         if 0 <= idx < len(labels):
-            p = Path(deployed[labels[idx]]["path"])
-            if not p.exists():
-                print(f"[ERROR] 目标目录不存在: {p}")
-                sys.exit(1)
-            return p.resolve()
+            p = Path(deployed[labels[idx]].path)
+            if p.exists():
+                return p.resolve()
+            print(f"[ERROR] 目标目录不存在: {p}")
+            sys.exit(1)
     except (ValueError, IndexError):
         pass
 
@@ -264,138 +225,249 @@ def resolveTarget(targetArg: str | None) -> Path:
     sys.exit(1)
 
 
-def copyDir(
+def _prompt_manual_path() -> Path:
+    """交互模式：提示用户手动输入路径。"""
+    path = input("请输入目标项目路径: ").strip()
+    p = Path(path)
+    if p.exists():
+        return p.resolve()
+    print(f"[ERROR] 路径不存在: {path}")
+    sys.exit(1)
+
+
+def _try_match_record(
+    target_arg: str,
+    deployed: dict[str, DeployRecord],
+) -> Path | None:
+    """尝试将 --target 参数匹配到已部署记录的路径。"""
+    for record in deployed.values():
+        if target_arg.lower() in (record.name.lower(), record.path.lower()):
+            candidate = Path(record.path)
+            if candidate.exists():
+                return candidate.resolve()
+    return None
+
+
+def _diagnose_bad_target(target_arg: str) -> None:
+    """诊断 --target 参数为何无法解析。"""
+    print(f"[ERROR] 目标不存在或未记录: {target_arg}")
+
+    if re.match(r"^[A-Za-z]:[^\\]", target_arg):
+        print("  [!] 看起来像一个 Windows 路径，但反斜杠丢失了。")
+        print("     在 PowerShell 中请用引号包裹路径:")
+        print(f"       python deploy.py -t \"{target_arg[:2]}\\{target_arg[2:]}\"")
+        print("     或使用正斜杠:")
+        print(f"       python deploy.py -t \"{target_arg[:2]}/{target_arg[2:]}\"")
+    else:
+        print("  提示: 先用交互模式 (python deploy.py) 部署一次，")
+        print("        或输入完整路径。")
+
+
+def _prompt_mode() -> tuple[bool, bool]:
+    """交互模式：提示用户选择部署模式。返回 (force, update)。"""
+    print("\n部署模式:")
+    print("  [1] 安装（跳过已有文件，默认）")
+    print("  [2] 更新（覆盖已有文件）")
+    print("  [3] 强制刷新（先删除旧目录再重新复制）")
+
+    choice = input("\n请选择部署模式 (输入序号，直接回车默认 1): ").strip()
+
+    match choice:
+        case "2": return (False, True)
+        case "3": return (True, False)
+        case _:   return (False, False)
+
+
+def resolve_target(target_arg: str | None) -> Path:
+    """解析目标项目路径。
+
+    数据来源（按优先级）:
+      1. --target 参数（直接路径或已记录的名称/路径）
+      2. 交互模式 — 从 deploy-state.json 读取已部署项目列表
+    """
+    if target_arg is not None:
+        p = Path(target_arg)
+        if p.exists():
+            return p.resolve()
+
+        deployed = list_deployed_projects()
+        matched = _try_match_record(target_arg, deployed)
+        if matched is not None:
+            return matched
+
+        _diagnose_bad_target(target_arg)
+        sys.exit(1)
+
+    deployed = list_deployed_projects()
+    return _pick_from_list(deployed)
+
+
+# ============================================================
+# 文件复制
+# ============================================================
+
+
+def copy_dir(
     src: Path,
     dst: Path,
     *,
     update: bool = False,
-    dryRun: bool = False,
+    dry_run: bool = False,
     exclude: set[str] | None = None,
-) -> tuple[int, int]:
-    """
-    递归复制目录内容。
-
-    返回 (新增/更新数, 跳过数)。
-    """
-    exclude = exclude or set()
-    created = 0
-    skipped = 0
+) -> CopyResult:
+    """递归复制目录内容。"""
+    exclude_set: set[str] = exclude or set()
+    result = CopyResult()
 
     if not src.exists():
         print(f"  [SKIP] 源目录不存在: {src}")
-        return 0, 0
+        return result
 
     for item in src.iterdir():
-        if item.name in exclude:
+        if item.name in exclude_set:
             continue
 
-        dstItem = dst / item.name
+        dst_item = dst / item.name
 
         if item.is_dir():
-            c, s = copyDir(item, dstItem, update=update, dryRun=dryRun)
-            created += c
-            skipped += s
+            sub = copy_dir(
+                item, dst_item,
+                update=update, dry_run=dry_run, exclude=exclude,
+            )
+            result.copied += sub.copied
+            result.skipped += sub.skipped
         else:
-            if dstItem.exists() and not update:
-                skipped += 1
+            if dst_item.exists() and not update:
+                result.skipped += 1
                 continue
 
-            if not dryRun:
-                dstItem.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(item, dstItem)
-            created += 1
+            if not dry_run:
+                dst_item.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(item, dst_item)
+            result.copied += 1
 
-    return created, skipped
+    return result
 
 
-def deploySkills(
-    toolkitRoot: Path,
-    targetRoot: Path,
-    *,
-    update: bool = False,
-    dryRun: bool = False,
-) -> dict:
-    """部署 skills/workflows 和 skills/qt (排除 references)。返回统计。"""
-    stats = {}
-    print("\n" + "=" * 60)
-    print("  [1/3] 部署 Skills")
+# ============================================================
+# 部署步骤
+# ============================================================
+
+
+def _print_step(number: str, title: str) -> None:
+    """打印步骤标题。"""
+    print(f"\n{'=' * 60}")
+    print(f"  [{number}] {title}")
     print("=" * 60)
 
-    # 1a. workflows
-    src = toolkitRoot / "skills" / "workflows"
-    dst = targetRoot / ".agents" / "skills"
-    print(f"\n  --- 工作流技能 ---")
-    print(f"  源: {src}")
-    print(f"  目标: {dst}")
-    c, s = copyDir(src, dst, update=update, dryRun=dryRun)
-    stats["workflows"] = {"copied": c, "skipped": s}
-    print(f"  结果: {c} 个文件已{'预览' if dryRun else '复制'}, {s} 个跳过")
 
-    # 1b. qt skills (排除 references/)
-    src = toolkitRoot / "skills" / "qt"
-    dst = targetRoot / ".agents" / "skills"
-    print(f"\n  --- Qt 技能 ---")
-    print(f"  源: {src}")
-    print(f"  目标: {dst}")
-    c, s = copyDir(src, dst, update=update, dryRun=dryRun, exclude={"references"})
-    stats["qt_skills"] = {"copied": c, "skipped": s}
-    print(f"  结果: {c} 个文件已{'预览' if dryRun else '复制'}, {s} 个跳过")
+def _print_copy_result(
+    result: CopyResult,
+    dry_run: bool,
+) -> None:
+    """打印复制结果。"""
+    action = "预览" if dry_run else "复制"
+    print(f"  结果: {result.copied} 个文件已{action}, {result.skipped} 个跳过")
+
+
+def _collect_copy_stats(
+    key: str,
+    src: Path,
+    dst: Path,
+    *,
+    update: bool,
+    dry_run: bool,
+    exclude: set[str] | None = None,
+) -> dict[str, Any]:
+    """复制目录并返回统计字典。"""
+    r = copy_dir(src, dst, update=update, dry_run=dry_run, exclude=exclude)
+    print(f"  源: {src}\n  目标: {dst}")
+    _print_copy_result(r, dry_run)
+    return {key: {"copied": r.copied, "skipped": r.skipped}}
+
+
+def deploy_skills(
+    toolkit_root: Path,
+    target_root: Path,
+    *,
+    update: bool = False,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """部署 skills/workflows 和 skills/qt (排除 references)。"""
+    stats: dict[str, Any] = {}
+    _print_step("1/3", "部署 Skills")
+
+    print("\n  --- 工作流技能 ---")
+    stats.update(
+        _collect_copy_stats(
+            "workflows",
+            toolkit_root / "skills" / "workflows",
+            target_root / ".agents" / "skills",
+            update=update,
+            dry_run=dry_run,
+        )
+    )
+
+    print("\n  --- Qt 技能 ---")
+    stats.update(
+        _collect_copy_stats(
+            "qt_skills",
+            toolkit_root / "skills" / "qt",
+            target_root / ".agents" / "skills",
+            update=update,
+            dry_run=dry_run,
+            exclude={"references"},
+        )
+    )
+
     return stats
 
 
-def deployReferences(
-    toolkitRoot: Path,
-    targetRoot: Path,
+def deploy_references(
+    toolkit_root: Path,
+    target_root: Path,
     *,
     update: bool = False,
-    dryRun: bool = False,
-) -> dict:
-    """部署 references（审查清单/参考资料）。返回统计。"""
-    print("\n" + "=" * 60)
-    print("  [2/3] 部署 References")
-    print("=" * 60)
-
-    src = toolkitRoot / "skills" / "qt" / "references"
-    dst = targetRoot / ".agents" / "references"
-    print(f"\n  源: {src}")
-    print(f"  目标: {dst}")
-    c, s = copyDir(src, dst, update=update, dryRun=dryRun)
-    print(f"  结果: {c} 个文件已{'预览' if dryRun else '复制'}, {s} 个跳过")
-    return {"references": {"copied": c, "skipped": s}}
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """部署 references（审查清单/参考资料）。"""
+    _print_step("2/3", "部署 References")
+    return _collect_copy_stats(
+        "references",
+        toolkit_root / "skills" / "qt" / "references",
+        target_root / ".agents" / "references",
+        update=update,
+        dry_run=dry_run,
+    )
 
 
-def deployInstructions(
-    toolkitRoot: Path,
-    targetRoot: Path,
+def deploy_instructions(
+    toolkit_root: Path,
+    target_root: Path,
     *,
     update: bool = False,
-    dryRun: bool = False,
-) -> dict:
-    """部署 instructions 到项目 .github/instructions。返回统计。"""
-    print("\n" + "=" * 60)
-    print("  [3/3] 部署 Instructions")
-    print("=" * 60)
-
-    src = toolkitRoot / "instructions"
-
-    # 项目级 .github/instructions/
-    dstProject = targetRoot / ".github" / "instructions"
-    print(f"\n  源: {src}")
-    print(f"  目标: {dstProject}")
-    c, s = copyDir(src, dstProject, update=update, dryRun=dryRun)
-    print(f"  结果: {c} 个文件已{'预览' if dryRun else '复制'}, {s} 个跳过")
-    return {"instructions": {"copied": c, "skipped": s}}
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """部署 instructions 到项目 .github/instructions。"""
+    _print_step("3/3", "部署 Instructions")
+    return _collect_copy_stats(
+        "instructions",
+        toolkit_root / "instructions",
+        target_root / ".github" / "instructions",
+        update=update,
+        dry_run=dry_run,
+    )
 
 
-def cleanTarget(targetRoot: Path, *, dryRun: bool = False) -> None:
+def clean_target(target_root: Path, *, dry_run: bool = False) -> None:
     """删除目标项目中由部署脚本创建的文件/目录。"""
-    dirsToRemove = [
-        targetRoot / ".agents",
-        targetRoot / ".github" / "instructions",
+    dirs_to_remove = [
+        target_root / ".agents",
+        target_root / ".github" / "instructions",
     ]
-    for d in dirsToRemove:
+    for d in dirs_to_remove:
         if d.exists():
-            if dryRun:
+            if dry_run:
                 print(f"  [DRY-RUN] 将会删除: {d}")
             else:
                 shutil.rmtree(d)
@@ -404,139 +476,149 @@ def cleanTarget(targetRoot: Path, *, dryRun: bool = False) -> None:
             print(f"  无需清理: {d}")
 
 
-def main():
+# ============================================================
+# 入口
+# ============================================================
+
+
+def _print_summary(
+    all_stats: dict[str, Any],
+    mode: str,
+    dry_run: bool,
+) -> None:
+    """打印部署完成汇总。"""
+    total_copied = sum(v.get("copied", 0) for v in all_stats.values())
+    total_skipped = sum(v.get("skipped", 0) for v in all_stats.values())
+
+    suffix = " [DRY-RUN — 未实际修改]" if dry_run else ""
+    print(f"\n{'=' * 60}")
+    print(f"  部署完成 ({mode}模式){suffix}")
+    if not dry_run:
+        print(f"  新增/更新: {total_copied} 个文件 | 跳过: {total_skipped} 个文件")
+    print("=" * 60)
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    """构建命令行参数解析器。"""
     parser = argparse.ArgumentParser(
         description="toolkit → 目标项目 自动部署脚本",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
-  python deploy.py                              # 交互模式（从 state 列出已部署项目）
-  python deploy.py --target <路径>               # 部署到指定项目
-  python deploy.py --target keeprix_dev          # 按已记录的名称匹配
-  python deploy.py --target <路径> --dry-run     # 预览模式
-  python deploy.py --target <路径> --update      # 覆盖已有文件
-  python deploy.py --target <路径> --force       # 强制重新部署
-  python deploy.py --list-deployed               # 列出所有已部署项目
+  python deploy.py                              # 交互模式
+  python deploy.py --target keeprix_dev          # 按名称匹配
+  python deploy.py --target <路径>                # 按路径部署
+  python deploy.py --target <路径> --dry-run     # 预览
+  python deploy.py --target <路径> --update      # 覆盖已有
+  python deploy.py --target <路径> --force       # 强制刷新
+  python deploy.py --list-deployed               # 列出已部署项目
         """,
     )
+    parser.add_argument("-t", "--target", help="目标项目路径或已记录的名称/路径")
     parser.add_argument(
-        "-t", "--target",
-        help="目标项目路径，或已在 deploy-state.json 中记录的名称/路径",
-    )
-    parser.add_argument(
-        "-u", "--update",
-        action="store_true",
+        "-u", "--update", action="store_true",
         help="更新模式：覆盖已存在的文件（默认跳过）",
     )
     parser.add_argument(
-        "-f", "--force",
-        action="store_true",
-        help=(
-            "强制重新部署：先删除目标项目中的 .agents/ 和 .github/instructions/，"
-            "再重新复制所有文件。适用于 toolkit 重大更新后需要完全刷新的场景。"
-        ),
+        "-f", "--force", action="store_true",
+        help="强制重新部署：删除旧目录后再重新复制所有文件",
     )
     parser.add_argument(
-        "-n", "--dry-run",
-        action="store_true",
+        "-n", "--dry-run", action="store_true",
         help="预览模式：只显示将要执行的操作，不实际复制",
     )
     parser.add_argument(
-        "--no-vscode",
-        action="store_true",
-        help="跳过 VS Code 全局 prompts 部署",
-    )
-    parser.add_argument(
-        "--list-deployed",
-        action="store_true",
+        "--list-deployed", action="store_true",
         help="列出所有已部署项目及其路径、上次部署时间，然后退出",
     )
+    return parser
 
-    args = parser.parse_args()
 
-    toolkitRoot = getToolkitRoot()
+def _run_list_deployed() -> None:
+    """处理 --list-deployed 逻辑。"""
+    toolkit_root = _get_toolkit_root()
+    print(f"Toolkit 根目录: {toolkit_root}")
+    deployed = list_deployed_projects()
 
-    # --list-deployed: 只列出状态，不执行部署
-    if args.list_deployed:
-        print(f"Toolkit 根目录: {toolkitRoot}")
-        deployed = listDeployedProjects()
-        if deployed:
-            print(f"\n已部署的项目 ({len(deployed)} 个):")
-            for name, info in deployed.items():
-                exists = "✓" if Path(info["path"]).exists() else "✗"
-                print(f"  {name}")
-                print(f"    路径: {info['path']}  {exists}")
-                print(f"    上次部署: {info['last_deployed_iso']}")
-        else:
-            print("\n尚未部署过任何项目。")
-            print("运行 python deploy.py 进入交互模式开始部署。")
+    if not deployed:
+        print("\n尚未部署过任何项目。")
+        print("运行 python deploy.py 进入交互模式开始部署。")
         return
 
-    # --force: 自动启用 --update，并先删除目标目录再重新部署
-    effectiveUpdate = args.update or args.force
-    if args.force:
-        print("[INFO] --force 模式：将清除目标项目中的旧文件再重新部署。")
-        cleanTarget(targetRoot, dryRun=args.dry_run)
+    print(f"\n已部署的项目 ({len(deployed)} 个):")
+    for record in deployed.values():
+        icon = "[+]" if Path(record.path).exists() else "[x]"
+        print(f"  {record.name}")
+        print(f"    路径: {record.path}  {icon}")
+        print(f"    上次部署: {record.last_deployed_iso}")
 
-    print(f"Toolkit 根目录: {toolkitRoot}")
 
-    targetRoot = resolveTarget(args.target)
-    targetName = targetRoot.name
-    print(f"目标项目: {targetRoot}")
+def _run_deploy(args: argparse.Namespace) -> None:
+    """执行部署流程。"""
+    toolkit_root = _get_toolkit_root()
+    print(f"Toolkit 根目录: {toolkit_root}")
+
+    is_interactive = args.target is None
+    target_root = resolve_target(args.target)
+    target_name = target_root.name
+
+    print(f"目标项目: {target_root}")
+
+    # 交互模式且未指定 --update/--force 时，让用户选择模式
+    if is_interactive and not args.update and not args.force:
+        interactive_force, interactive_update = _prompt_mode()
+        # 命令行参数优先级高于交互选择
+        force = args.force or interactive_force
+        update = args.update or interactive_update
+    else:
+        force = args.force
+        update = args.update
 
     if args.dry_run:
         print("\n*** DRY-RUN 模式 — 不会实际修改文件 ***")
 
-    mode = "强制部署" if args.force else ("更新" if args.update else "安装")
+    effective_update = update or force
 
-    allStats = {}
-    allStats.update(
-        deploySkills(toolkitRoot, targetRoot, update=effectiveUpdate, dryRun=args.dry_run)
+    if force:
+        print("[INFO] 强制刷新模式：将清除目标项目中的旧文件再重新部署。")
+        clean_target(target_root, dry_run=args.dry_run)
+
+    match (force, update):
+        case (True, _):     mode = "强制部署"
+        case (_, True):     mode = "更新"
+        case _:             mode = "安装"
+
+    all_stats: dict[str, Any] = {}
+    all_stats.update(
+        deploy_skills(toolkit_root, target_root, update=effective_update, dry_run=args.dry_run)
     )
-    allStats.update(
-        deployReferences(toolkitRoot, targetRoot, update=effectiveUpdate, dryRun=args.dry_run)
+    all_stats.update(
+        deploy_references(toolkit_root, target_root, update=effective_update, dry_run=args.dry_run)
     )
-    allStats.update(
-        deployInstructions(toolkitRoot, targetRoot, update=effectiveUpdate, dryRun=args.dry_run)
+    all_stats.update(
+        deploy_instructions(toolkit_root, target_root, update=effective_update, dry_run=args.dry_run)
     )
 
-    # VS Code prompts
-    vscodeStats = {}
-    if not args.no_vscode:
-        print("\n" + "=" * 60)
-        print("  [附] VS Code 全局 Prompts")
-        print("=" * 60)
-        src = toolkitRoot / "instructions"
-        dstVscode = Path(VSCODE_PROMPTS_DIR)
-        print(f"\n  源: {src}")
-        print(f"  目标: {dstVscode}")
-        if dstVscode.exists():
-            c, s = copyDir(src, dstVscode, update=effectiveUpdate, dryRun=args.dry_run)
-            vscodeStats = {"vscode_prompts": {"copied": c, "skipped": s}}
-            print(f"  结果: {c} 个文件已{'预览' if args.dry_run else '复制'}, {s} 个跳过")
-        else:
-            print(f"  [SKIP] 目录不存在: {dstVscode}")
-            print(f"  提示: 请确认 VS Code 已安装，或使用 --no-vscode 跳过此步骤")
-
-    # 记录部署状态（仅在实际部署后，非 dry-run）
     if not args.dry_run:
-        recordDeployment(str(targetRoot), {**allStats, **vscodeStats}, name=targetName)
+        record_deployment(str(target_root), all_stats, name=target_name)
 
-        # 打印汇总
-        totalCopied = sum(
-            v.get("copied", 0) for v in {**allStats, **vscodeStats}.values()
-        )
-        totalSkipped = sum(
-            v.get("skipped", 0) for v in {**allStats, **vscodeStats}.values()
-        )
-        print(f"\n{'=' * 60}")
-        print(f"  部署完成 ({mode}模式)")
-        print(f"  新增/更新: {totalCopied} 个文件 | 跳过: {totalSkipped} 个文件")
-        print(f"{'=' * 60}")
-    else:
-        print(f"\n{'=' * 60}")
-        print(f"  部署完成 ({mode}模式) [DRY-RUN — 未实际修改]")
-        print(f"{'=' * 60}")
+    _print_summary(all_stats, mode, dry_run=args.dry_run)
+
+
+def main() -> None:
+    """脚本入口。"""
+    parser = _build_parser()
+    args = parser.parse_args()
+
+    if args.list_deployed:
+        # --list-deployed 是独占参数，不应与其他操作参数混用
+        if any([args.target, args.update, args.force, args.dry_run]):
+            print("[ERROR] --list-deployed 是独占参数，不能与 --target/--update/--force/--dry-run 同时使用")
+            sys.exit(2)
+        _run_list_deployed()
+        return
+
+    _run_deploy(args)
 
 
 if __name__ == "__main__":
