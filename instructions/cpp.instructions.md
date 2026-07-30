@@ -17,7 +17,7 @@ description: Qt/C++ 编码规范 — 命名、声明顺序、文件结构
 - **头文件暴露最少接口**：实现细节放 .cpp，前置声明代替 include
 - **父对象管理优先**：能设 parent 就不手动 delete
 - **信号槽新式语法**：编译期检查优于运行期字符串匹配
-- **`_` 前缀成员变量**：统一风格，与 Qt 源码习惯一致
+- **`m_` / `s_` 前缀成员变量**：实例成员用 `m_`，静态成员用 `s_`，与 Qt 源码习惯一致
 - **复杂就拆分**：一个类过于臃肿时，提取为新类，职责单一比大而全更易维护
 
 ---
@@ -42,24 +42,26 @@ description: Qt/C++ 编码规范 — 命名、声明顺序、文件结构
 
 使用 C++17 特性，摒弃 C++98/03 旧写法：
 
-| 应使用 | 避免 |
-|--------|------|
-| `enum`（配合 `Q_ENUM`） | `enum class`（无法注册到元对象系统） |
-| `using` 别名（简化长类型） | `typedef` / 手写长类型 |
-| 范围 for（`for (auto &x : list)`） | 下标 for（`for (int i = 0; ...)`） |
-| `std::move` / 传值 | 手动拷贝 |
-| `nullptr` | `NULL` / `0` |
-| `auto` | 显式冗长类型 |
-| `constexpr` | `#define` 常量 |
-| `= default` / `= delete` | 空实现 / 不声明 |
-| 类内初始化（`int _count = 0`） | 构造函数中赋值全部成员 |
-| 容器 `emplace_back` | `push_back` + 临时对象 |
+| 应使用                             | 避免                                 |
+| ---------------------------------- | ------------------------------------ |
+| `enum`（配合 `Q_ENUM`）            | `enum class`（无法注册到元对象系统） |
+| `using` 别名（简化长类型）         | `typedef` / 手写长类型               |
+| 范围 for（`for (auto &x : list)`） | 下标 for（`for (int i = 0; ...)`）   |
+| `std::move` / 传值                 | 手动拷贝                             |
+| `nullptr`                          | `NULL` / `0`                         |
+| `auto`                             | 显式冗长类型                         |
+| `constexpr`                        | `#define` 常量                       |
+| `= default` / `= delete`           | 空实现 / 不声明                      |
+| 类内初始化（`int m_count = 0`）    | 构造函数中赋值全部成员               |
+| 容器 `emplace_back`                | `push_back` + 临时对象               |
 ```cpp
 // ✅ C++17（需要 Q_ENUM 时用普通 enum，无需注册的用 enum class）
 enum Status { Idle, Running, Finished };
 using StringList = QVector<QString>;         // 简化长类型
 using Callback = std::function<void(int)>;  // 简化复杂签名
-constexpr int MAX_RETRIES = 3;
+constexpr int k_maxRetries = 3;              // 字面量类型 → constexpr
+constexpr auto k_defaultTimeout = 5000ms;    // C++14 chrono 字面量
+static const QString k_tag = "Toolkit";      // 非字面量类型 → static const
 
 for (const auto &item : items) {
     item.process();
@@ -85,13 +87,13 @@ for (int i = 0; i < items.size(); ++i) {
 
 **编程是将一组数据转化为另一组数据的过程。** 代码分为两类：
 
-| | 数据 | 操作者 |
-|------|------|--------|
-| 类型 | `struct` | `class`（尽量继承 QObject） |
-| 职责 | 承载数据 | 处理/转换数据 |
-| 成员函数 | 尽可能少 | 按功能组织 |
-| 成员变量 | 公开（调用者直接读写） | 不暴露（`_` 前缀 + private） |
-| 生命周期 | 值传递 / 栈分配 | Qt 对象树 / parent 管理 |
+|          | 数据                   | 操作者                        |
+| -------- | ---------------------- | ----------------------------- |
+| 类型     | `struct`               | `class`（尽量继承 QObject）   |
+| 职责     | 承载数据               | 处理/转换数据                 |
+| 成员函数 | 尽可能少               | 按功能组织                    |
+| 成员变量 | 公开（调用者直接读写） | 不暴露（`m_` 前缀 + private） |
+| 生命周期 | 值传递 / 栈分配        | Qt 对象树 / parent 管理       |
 
 - **数据**用 `struct`，轻量、透明、可拷贝。只带必要的构造和转换函数
 - **操作者**用 `class`，管理状态、执行逻辑、跨线程通信。通过信号对外通知，不暴露内部数据
@@ -116,7 +118,7 @@ signals:
     void finished();
 
 private:
-    DownloadTask _task;
+    DownloadTask m_task;
 };
 ```
 
@@ -124,32 +126,41 @@ private:
 
 ## 命名约定
 
-| 分类 | 风格 | 示例 |
-|------|------|------|
-| 类名 | PascalCase，项目前缀 | `KRDLWorker`, `KRCRThread` |
-| 文件名 | PascalCase，与类名一致 | `KRDLWorker.h` / `.cpp` |
-| 函数 / 方法 | camelCase | `setIsRunning()`, `processNextTask()` |
-| 成员变量 | `_` 前缀 + camelCase | `_rate`, `_isRunning`, `_task` |
-| 局部变量 | camelCase | `reply`, `task`, `thread` |
-| 参数 | camelCase | `QWidget *parent`, `qreal rate` |
-| 枚举类型 & 值 | PascalCase | `enum State { Idle, Checking, Decrypting }` |
-| 宏 / 导出宏 | 大写 + 下划线 | `_KEEPRIX_DOWNLOAD_API`, `Q_DECL_EXPORT` |
-| 公开常量 / 静态变量 | 大写 + 下划线，**无**前缀 | `MAX_RETRY_COUNT`, `DEFAULT_TIMEOUT` |
-| 私有常量 / 静态变量 | 大写 + 下划线，`_` 前缀 | `_MAX_BUFFER_SIZE`, `_INSTANCE` |
+| 分类          | 风格                   | 示例                                        |
+| ------------- | ---------------------- | ------------------------------------------- |
+| **类型**      |                        |                                             |
+| 类名          | PascalCase，项目前缀   | `KRDLWorker`, `KRCRThread`                  |
+| 文件名        | PascalCase，与类名一致 | `KRDLWorker.h` / `.cpp`                     |
+| 枚举类型 & 值 | PascalCase             | `enum State { Idle, Checking, Decrypting }` |
+| **函数**      |                        |                                             |
+| 函数 / 方法   | camelCase              | `setIsRunning()`, `processNextTask()`       |
+| **变量**      |                        |                                             |
+| 常量          | `k_` 前缀 + camelCase  | `k_maxRetryCount`, `k_tag`                  |
+| 成员变量      | `m_` 前缀 + camelCase  | `m_rate`, `m_isRunning`, `m_task`           |
+| 静态成员变量  | `s_` 前缀 + camelCase  | `s_instance`, `s_defaultTimeout`            |
+| 局部变量      | camelCase              | `reply`, `task`, `thread`                   |
+| 参数          | camelCase              | `QWidget *parent`, `qreal rate`             |
+| **预处理器**  |                        |                                             |
+| 宏 / 导出宏   | 大写 + 下划线          | `KEEPRIX_DOWNLOAD_API`, `Q_DECL_EXPORT`     |
 
-### 成员变量前缀：`_`
+> **常量定义规则**：常量必须用 `constexpr` 或 `static const` 声明，**禁止使用 `#define` 定义常量**。`k_` 前缀表示不可变，与 `m_` / `s_` 前缀系统保持一致。对于 literal type（int、double、enum 等）用 `constexpr`，对于非 literal type（QString、QColor 等）用 `static const` / `inline static const`。宏（预处理器符号）不受此规则约束，仍用大写 + 下划线。
 
-使用 `_` 前缀，protected 和 private 统一风格：
+### 成员变量前缀：`m_` / `s_`
+
+使用 `m_`（实例成员）和 `s_`（静态成员）前缀，protected 和 private 统一风格：
 
 ```cpp
 protected:
-    qreal _rate = 1.0;
-    bool _isRunning = false;
+    qreal m_rate = 1.0;
+    bool m_isRunning = false;
 
 private:
-    QString _error;
-    int _maxConcurrent = 3;
+    static ClassName *s_instance;
+    QString m_error;
+    int m_maxConcurrent = 3;
 ```
+
+> 注意：`m_` / `s_` 前缀完全符合 C++ 标准规范，不存在 `_` 前缀在全局命名空间的保留标识符问题。
 
 ### getter / setter
 
@@ -168,8 +179,8 @@ void KRDLWorker::reset()
 // ❌ 绕过 setter 直接赋值，可能遗漏信号
 void KRDLWorker::reset()
 {
-    _rate = 1.0;
-    _error.clear();
+    m_rate = 1.0;
+    m_error.clear();
 }
 ```
 
@@ -276,7 +287,7 @@ class FFmpegConverter;
 class KRDLConverter : public KRDLWorker
 {
     Q_OBJECT
-    FFmpegConverter *_converter = nullptr;
+    FFmpegConverter *m_converter = nullptr;
 };
 ```
 
@@ -321,7 +332,7 @@ connect(reply, &QNetworkReply::finished, this, [this]() {
 
 class QNetworkReply;
 
-class _MODULE_API MyClass : public QObject
+class MODULE_API MyClass : public QObject
 {
     Q_OBJECT
 
@@ -340,8 +351,8 @@ signals:
     void nameChanged(QString name);
 
 private:
-    QString _name;
-    int _counter = 0;
+    QString m_name;
+    int m_counter = 0;
 };
 ```
 
@@ -355,7 +366,8 @@ private:
 #include <QDebug>
 
 namespace {
-    constexpr int MAX_RETRIES = 3;
+    constexpr int k_maxRetries = 3;
+    static const QString k_tag = "Toolkit";
     QString sanitize(const QString &input) { return input.trimmed().toLower(); }
 }
 
@@ -368,14 +380,14 @@ MyClass::~MyClass() = default;
 
 QString MyClass::name() const
 {
-    return _name;
+    return m_name;
 }
 
 void MyClass::setName(QString name)
 {
-    if (_name != name) {
-        _name = name;
-        emit nameChanged(_name);
+    if (m_name != name) {
+        m_name = name;
+        emit nameChanged(m_name);
     }
 }
 ```
@@ -463,8 +475,8 @@ MyClass *MyClass::instance()
 {
     // C++11 static 保证线程安全初始化
     using Ptr = QScopedPointer<MyClass, QScopedPointerDeleteLater>;
-    static Ptr _INSTANCE(createInstance());
-    return _INSTANCE.data();
+    static Ptr s_instance(createInstance());
+    return s_instance.data();
 }
 
 MyClass *MyClass::createInstance()
@@ -512,12 +524,12 @@ delete worker;
 class MyData
 {
 public:
-    MyData() : _data(new Data) {}
-    QString name() const { return _data->name; }
-    void setName(QString name) { _data->name = name; }  // 自动 detach
+    MyData() : m_data(new Data) {}
+    QString name() const { return m_data->name; }
+    void setName(QString name) { m_data->name = name; }  // 自动 detach
 private:
     struct Data : QSharedData { QString name; };
-    QSharedDataPointer<Data> _data;
+    QSharedDataPointer<Data> m_data;
 };
 ```
 
@@ -538,7 +550,7 @@ public:
     void doSomething();
 private:
     struct Content;
-    QScopedPointer<Content> _content;
+    QScopedPointer<Content> m_content;
 };
 
 // xxx.cpp
@@ -547,7 +559,7 @@ struct MyClass::Content {
     QNetworkReply *reply = nullptr;
 };
 MyClass::MyClass(QObject *p)
-    : QObject(p), _content(new Content)
+    : QObject(p), m_content(new Content)
 {
 }
 
@@ -555,8 +567,8 @@ MyClass::~MyClass() = default;
 
 void MyClass::doSomething()
 {
-    if (_content->reply != nullptr) {
-        _content->reply->abort();
+    if (m_content->reply != nullptr) {
+        m_content->reply->abort();
     }
 }
 ```
@@ -579,12 +591,12 @@ public slots:
 signals:
     void finished();
 private:
-    QObject *_host = nullptr;
+    QObject *m_host = nullptr;
 };
 
 // Worker.cpp
 Worker::Worker(QObject *host)
-    : QObject(nullptr), _host(host)
+    : QObject(nullptr), m_host(host)
 {
 }
 
@@ -592,7 +604,7 @@ void Worker::process(QByteArray data)
 {
     // 在 Worker 线程执行
     emit finished();
-    QMetaObject::invokeMethod(_host, [this] { /* 主线程回调 */ });
+    QMetaObject::invokeMethod(m_host, [this] { /* 主线程回调 */ });
 }
 
 // 主线程中
@@ -623,18 +635,18 @@ public:
 
     void cancelAll()
     {
-        if (_reply) {
-            _reply->abort();
-            _reply->deleteLater();
-            _reply = nullptr;
+        if (m_reply) {
+            m_reply->abort();
+            m_reply->deleteLater();
+            m_reply = nullptr;
         }
-        if (_timer) {
-            _timer->stop();
+        if (m_timer) {
+            m_timer->stop();
         }
     }
 private:
-    QNetworkReply *_reply = nullptr;
-    QTimer *_timer = nullptr;
+    QNetworkReply *m_reply = nullptr;
+    QTimer *m_timer = nullptr;
 };
 ```
 
@@ -725,11 +737,11 @@ QString displayName() const;
 // ✅ 多行
 void setName(QString name)
 {
-    _name = name;
+    m_name = name;
 }
 
 // ❌ 单行
-void setName(QString name) { _name = name; }
+void setName(QString name) { m_name = name; }
 ```
 
 ### 避免隐式转换
@@ -778,12 +790,12 @@ if (condition) doSomething();
 
 ```cpp
 // ✅ 多个简单 if
-if (!task.isValid()) return;
-if (!task.isReady()) return;
-if (task.isCancelled()) return;
+if (!task.isValid()) { return; }
+if (!task.isReady()) { return; }
+if (task.isCancelled()) { return; }
 
 // ❌ 一个 if 塞太多条件
-if (!task.isValid() || !task.isReady() || task.isCancelled()) return;
+if (!task.isValid() || !task.isReady() || task.isCancelled()) { return; }
 ```
 
 **重复调用提取变量**：同一对象或函数多次使用时，先提取到本地变量：
@@ -821,8 +833,8 @@ for (auto &item : items) {
 
 // ✅ 3 层 → 提取局部 lambda
 auto processItem = [this](const Item &item) {
-    if (!item.isValid()) return;
-    if (!item.isReady()) return;
+    if (!item.isValid()) { return; }
+    if (!item.isReady()) { return; }
     doProcess(item);
 };
 
@@ -898,9 +910,9 @@ setter 中先比较再赋值，避免不必要的信号发射：
 ```cpp
 void MyClass::setName(QString name)
 {
-    if (_name == name) return;            // ✅ 无变化，跳过
-    _name = name;
-    emit nameChanged(_name);
+    if (m_name == name) { return; }        // ✅ 无变化，跳过
+    m_name = name;
+    emit nameChanged(m_name);
 }
 ```
 
@@ -947,7 +959,7 @@ default:        return "未知";
 统一使用 `nullptr`，不用 `NULL` 或 `0`：
 
 ```cpp
-QNetworkReply *_reply = nullptr;
+QNetworkReply *m_reply = nullptr;
 ```
 
 ### C++ 标准
