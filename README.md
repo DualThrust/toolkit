@@ -11,12 +11,15 @@
 ```
 toolkit/
 ├── deploy.py                   # 自动部署脚本
+├── deploy-state.json           # 已部署项目的记录（自动生成，不入库）
+├── .gitignore
+│
 ├── skills/                     # Skill — 复制到项目 .agents/skills/ 使用
 │   ├── workflows/              # 工作流技能（源自 obra/superpowers）
 │   └── qt/                     # Qt 开发技能（源自 TheQtCompanyRnD/agent-skills）
 │       └── references/         # 审查清单、常见错误等参考文件
 │
-├── instructions/               # File Instructions — 复制到 .github/instructions/ 及 VS Code prompts/
+├── instructions/               # File Instructions — 复制到 .github/instructions/
 │   ├── cpp.instructions.md     # C++ / Qt 编码规范
 │   ├── qml.instructions.md     # QML 编码规范
 │   └── python.instructions.md  # Python 编码规范
@@ -33,20 +36,26 @@ toolkit/
 使用 `deploy.py` 脚本自动将 toolkit 内容部署到目标项目：
 
 ```bash
-# 交互模式 — 从预置列表中选择目标项目
+# 交互模式 — 选择已部署过的项目，或输入新路径
 python deploy.py
 
-# 按别名部署
-python deploy.py --target keeprix
+# 按已记录的名称部署（首次部署后自动记录）
+python deploy.py --target keeprix_dev
 
 # 按路径部署
 python deploy.py --target /path/to/your/project
 
 # 预览（不实际复制）
-python deploy.py --target keeprix --dry-run
+python deploy.py --target keeprix_dev --dry-run
 
-# 强制覆盖已有文件
-python deploy.py --target keeprix --update
+# 更新模式：覆盖目标已有文件
+python deploy.py --target keeprix_dev --update
+
+# 强制刷新：先删旧目录再重新复制（解决文件残留）
+python deploy.py --target keeprix_dev --force
+
+# 列出所有已部署项目
+python deploy.py --list-deployed
 ```
 
 脚本自动处理以下映射：
@@ -57,27 +66,36 @@ python deploy.py --target keeprix --update
 | `skills/qt/*` (除 references) | `.agents/skills/*` |
 | `skills/qt/references/*` | `.agents/references/*` |
 | `instructions/*.md` | `.github/instructions/*` |
-| `instructions/*.md` | VS Code `%APPDATA%/Code/User/prompts/` |
+
+> **部署模式说明：**
+> - **安装（默认）**：新增文件，跳过已有文件
+> - **更新（`--update`）**：新增文件，覆盖已有文件（残留文件不清除）
+> - **强制刷新（`--force`）**：先删除 `.agents/` 和 `.github/instructions/`，再全量复制（无残留）
+>
+> 交互模式下选择项目后会提示选择部署模式，也可通过命令行参数直接指定。
+
+### 部署状态管理
+
+每次部署后路径自动记录在 `deploy-state.json` 中，下次交互模式自动列出。  
+路径已不存在的项目会自动清理，无需手动维护。
 
 ### 手动部署（备用）
 
 ```bash
 # Skills — 复制到目标项目的 .agents/skills/
 cp -r skills/workflows/* 目标项目/.agents/skills/
-cp -r skills/qt/qt-cpp-review 目标项目/.agents/skills/   # 按需选择 Qt 技能
+cp -r skills/qt/* 目标项目/.agents/skills/   # 按需选择 Qt 技能
 
 # Instructions — 复制到项目的 .github/instructions/
 cp instructions/*.md 目标项目/.github/instructions/
-
-# Instructions — 复制到 VS Code 用户级 prompts（全局生效）
-cp instructions/*.md "$env:APPDATA\Code\User\prompts\"
 ```
 
 ### 同步上游更新后重新部署
 
 ```bash
 cd ~/Projects/Personal/toolkit && git pull
-python deploy.py --target keeprix --update
+python deploy.py --target keeprix_dev --update   # 增量更新
+python deploy.py --target keeprix_dev --force    # 完整刷新
 ```
 
 ## 上游来源
