@@ -91,6 +91,18 @@ target_link_libraries(myapp
 
 - target 别名用 `Namespace::target`：`MyApp::core`、`MyApp::widgets`
 
+## 文件命名
+
+| 文件 | 命名 | 示例 |
+|------|------|------|
+| 构建脚本 | `CMakeLists.txt`（固定名） | 各级目录同名 |
+| 查找模块 | `Find<库名>.cmake` | `FindZlib.cmake` |
+| 工具模块 | snake_case `.cmake` | `add_myapp_test.cmake` |
+
+- `CMakeLists.txt` 是保留名，各级目录都用它，不自定义
+- `.cmake` 模块集中放 `cmake/` 目录，用 `include()` 加载
+- 工具模块名与其中函数/宏同名（snake_case）
+
 ## Qt 专用规则
 
 - 必须用 `qt_*` 命令：`qt_add_executable` / `qt_add_library` / `qt_add_qml_module`

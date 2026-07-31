@@ -11,7 +11,7 @@ description: QML 编码规范 — import 顺序、组件声明顺序、命名约
 - `id: root` 必须是组件块内第一个属性
 - 声明顺序：id → enum → required → 附加属性 → 公开属性 → 信号 → 函数 → 私有 → 信号处理器 → 生命周期 → 内嵌结构 → 子控件 → 状态/转换
 - 公开接口在上，内部实现在下，视觉在最后
-- 组件 PascalCase，私有文件 `_` 前缀
+- 组件 PascalCase，私有件放同名子目录 + qmldir `internal`
 - 具体类型代替 `var`，`readonly` 表示派生值
 - `const`/`let` 代替 `var`，`===` 代替 `==`
 - 声明式绑定优先，不隐式引用 `id`
@@ -53,7 +53,26 @@ import QtQuick.Layouts
 | 类型 | 规则 | 示例 |
 |------|------|------|
 | 公开组件 | PascalCase | `MyButton.qml` |
-| 私有组件 | `_` + PascalCase | `_MyContent.qml` |
+| 私有组件 | 同名子目录 + `internal` | `MyButton/PrivateLabel.qml` |
+
+私有件放控件同名子目录，用 `internal` 声明（仅模块内可用，外部不可导入）：
+
+```
+MyButton.qml
+MyButton/
+├── PrivateLabel.qml      # 内部类型，模块外不可用
+└── PrivateIcon.qml
+```
+
+Qt 6 用 CMake 标记内部类型（生成 `qmldir` 的 `internal` 行）：
+
+```cmake
+set_source_files_properties(MyButton/PrivateLabel.qml
+    PROPERTIES QT_QML_INTERNAL_TYPE TRUE)
+```
+
+- `internal` 类型只对模块内其他 QML 文件可见；导入该模块的外部文件不可用
+- 不用 `_` 前缀做组件私有：不以大写开头无法作为类型，只能 `Loader` 加载
 
 ## 声明顺序
 

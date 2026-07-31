@@ -37,6 +37,22 @@
 | `sizeof` | `len()` / `unsafe.Sizeof` | 语义不同 |
 | `volatile` | `sync/atomic` | 并发场景 |
 
+### 命名速查
+
+| 对象 | 风格 | 示例 |
+|------|------|------|
+| 文件名 | snake_case | `http_server.go`, `main.go` |
+| 导出标识符 | PascalCase | `DeployConfig` |
+| 未导出标识符 | camelCase | `maxRetries` |
+| 包名 | 小写单数，无下划线 | `toolkit`, `config` |
+| 常量 | 同变量规则（导出才大写） | `DefaultTimeout` |
+| 缩写词 | 保持全大写 | `URL`, `ID`, `API` |
+
+- **文件用 snake_case，标识符用驼峰**（正好相反，新手易混）
+- 导出与否只看首字母：`CamelCase` 导出，`camelCase` 私有
+- 文件名与内部类型名无关（不像 Java 类名 = 文件名）
+- 保留后缀别撞名：`xxx_test.go`（测试）、`xxx_windows.go` / `xxx_linux.go`（平台）
+
 ### 常用容器
 
 | C++ | Go | 差异 |

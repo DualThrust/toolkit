@@ -52,8 +52,9 @@ description: Go 编码规范 — gofmt 官方风格、错误处理、并发
 | 常量 | 同变量规则（导出才大写） | `DefaultTimeout` |
 | 接收者 | 单字母/短名 | `func (d *Downloader)` |
 | 缩写词 | 保持全大写 | `URL`, `ID`, `API` |
+| 文件 | snake_case | `http_server.go`, `main.go` |
 
-- **不使用** snake_case、前缀体系 —— 那是 Qt/C++、Python 的专属
+- **标识符**不用 snake_case、前缀体系（那是 Qt/C++、Python 的专属）——但**文件名用 snake_case**（Go 惯例，与标识符相反）
 - 导出与否只看首字母：`CamelCase` 导出，`camelCase` 私有
 - 缩写词保持原样：`httpClient`、`ParseURL`，不拆成下划线
 - 命名要描述性，避免 `temp`/`data`/`item`/`tmp`
@@ -61,6 +62,8 @@ description: Go 编码规范 — gofmt 官方风格、错误处理、并发
 ## 文件与结构
 
 - 一个文件一个职责；单文件超 500 行考虑拆分
+- 文件名 snake_case，与内部类型名无关（不像 Java 类名=文件名）
+- 测试文件 `xxx_test.go`；平台文件 `xxx_windows.go` / `xxx_linux.go`（参与构建约束）
 - 声明顺序：常量/变量 → 类型 → `New*` 构造 → 方法 → 接口实现
 - 错误处理就近：检查错误立即返回，不嵌套 else
 - `init()` 尽量不用；构造逻辑放显式 `NewXxx` 函数

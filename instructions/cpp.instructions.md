@@ -73,6 +73,13 @@ void reset() { m_rate = 1.0; }   // ❌ 绕过 setter，可能漏信号
 
 过去式或描述性动词：`rateChanged()`, `errorOccurred()`
 
+## 文件命名
+
+- `.h`/`.cpp` 同名配对，类名 = 文件名（PascalCase）：`KRDLWorker.h` / `KRDLWorker.cpp`
+- 私有实现头文件用 `_p.h`：`KRDLWorker_p.h`（d-pointer 惯例）
+- 测试文件 `tst_<类名>.cpp`（Qt Test 惯例）：`tst_krdlworker.cpp`
+- 单类一文件；小工具类可合并；公共工具函数放 `utils.h` / `utils.cpp`
+
 ## 类声明顺序
 
 ```
