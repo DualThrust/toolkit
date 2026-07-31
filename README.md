@@ -1,7 +1,7 @@
 # toolkit
 
 个人技能（Skills）与编码规范（Instructions）的单一源头仓库。
-覆盖 C++/Qt、QML、CMake、Python 四种语言的 AI 优化编码规范。
+覆盖 C++/Qt、QML、CMake、Python、Go 五种语言的 AI 优化编码规范。
 
 不依赖任何外部插件，所有内容从此仓库按需复制到各项目使用。
 
@@ -25,6 +25,7 @@ toolkit/
 │   ├── qml.instructions.md     # QML 编码规范
 │   ├── cmake.instructions.md   # CMake 编码规范
 │   ├── python.instructions.md  # Python 编码规范
+│   ├── go.instructions.md      # Go 编码规范
 │   └── references/             # 参考文件（Agent 不自动加载）
 │       ├── cpp-pitfalls.md     # C++ 陷阱详细展开
 │       ├── cpp-patterns.md     # C++ 设计模式与模板
@@ -32,7 +33,10 @@ toolkit/
 │       ├── cmake-patterns.md   # CMake 完整模板与示例
 │       ├── qml-pitfalls.md     # QML 陷阱详细展开
 │       ├── qml-patterns.md     # QML 模式与示例
-│       └── python-patterns.md  # Python 工具链与模板
+│       ├── python-patterns.md  # Python 工具链与模板
+│       ├── go-patterns.md      # Go 项目结构与模板
+│       ├── go-pitfalls.md      # Go 陷阱详细展开
+│       └── go-basics.md        # Go 基础语法速查 + C++ 迁移对照（初学者）
 │
 └── config/                     # 编辑器/工具配置参考
     └── clang-format/
