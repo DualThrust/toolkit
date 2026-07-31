@@ -4,3 +4,6 @@ deploy-state.json
 # 部署目标目录（.agents = skills/references, .github/instructions = 项目级 instructions）
 .agents/
 .github/
+
+# 计划等中间结果的目录
+docs/superpowers/
