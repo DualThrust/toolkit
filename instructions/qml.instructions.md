@@ -91,8 +91,10 @@ id → enum → required → 附加属性 → 公开属性 → 信号 → 公开
 - **颜色用 `Qt.color()`**：`color: Qt.color("#ffcc00")` 而非裸字符串
 - **日期用 `Date` 对象**：`property date d: new Date(2026, 6, 29)`
 - **别名只有一级**：`property alias text: label.text`
-- **属性分组**：`font { pixelSize: 14; bold: true }`
+- **属性分组**：同一属性组（`font`/`anchors` 等）的多条赋值必须合并进花括号，禁止逐个点号书写
 - **绑定不写重逻辑**：复杂计算放函数
+
+> 📖 属性分组示例见 [references/qml-patterns.md](references/qml-patterns.md)
 
 ## 函数
 

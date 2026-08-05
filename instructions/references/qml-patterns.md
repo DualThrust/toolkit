@@ -213,10 +213,31 @@ Row {
 
 ## 属性分组语法
 
+同一属性组有多条赋值时合并进花括号，禁止逐个点号书写：
+
 ```qml
-// ✅ 分组
-font { pixelSize: 14; bold: true }
-anchors { left: parent.left; right: parent.right; topMargin: 10 }
+// ❌ 分散点号，冗余且难以归组
+font.family: "Poppins"
+font.pixelSize: 14
+
+// ✅ 合并进属性花括号
+font {
+    family: "Poppins"
+    pixelSize: 14
+}
+```
+
+```qml
+// ✅ 分组（多行可读性更好）
+font {
+    pixelSize: 14
+    bold: true
+}
+anchors {
+    left: parent.left
+    right: parent.right
+    topMargin: 10
+}
 
 // ❌ 分散
 font.pixelSize: 14
