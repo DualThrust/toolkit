@@ -10,7 +10,7 @@ description: Qt/C++ 编码规范 — 命名、声明顺序、文件结构
 ## 核心原则
 
 - 可读性优先于微优化；格式交给 .clang-format
-- 类声明顺序固定：Q_OBJECT → public → signals → slots → protected → private
+- 类声明顺序固定：Q_OBJECT → Q_PROPERTY → public → signals → public slots → protected → private
 - .cpp 实现与 .h 声明顺序一致；头文件用前置声明代替 include
 - 父对象管理优先（设 parent 不手动 delete）；释放用 `deleteLater()`
 - 信号槽新式语法（编译期检查）；`m_` / `s_` 前缀成员变量
@@ -86,15 +86,11 @@ void reset() { m_rate = 1.0; }   // ❌ 绕过 setter，可能漏信号
 Q_OBJECT → Q_PROPERTY → public → signals → public slots → protected → private
 ```
 
-每节内按功能分组（`// == 下载 ==`），getter/setter 在前，操作函数在后，成员变量在各节末尾：
+每节内先按功能分组（`// == 下载 ==`），组内固定顺序：**静态函数 → 只读函数 → 操作函数**（`static` 工厂 / `const` 只读 / 修改状态的 setter 与动作）。
 
-```cpp
-public:
-    // == 下载 ==
-    qreal rate() const;
-    void setRate(qreal rate);
-    void startDownload();
-```
+成员变量集中在各访问控制节末尾，按功能分组（与函数分组对应），同组内 `k_` 常量 → `s_` 静态 → `m_` 实例。
+
+> 📖 完整示例见 [references/cpp-patterns.md](references/cpp-patterns.md)
 
 ## 头文件组织
 

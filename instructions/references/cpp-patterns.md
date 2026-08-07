@@ -61,6 +61,33 @@ private:
 
 ---
 
+## 类声明排序
+
+访问控制节内先按功能分组（`// == 下载 ==`），组内固定顺序：**静态函数 → 只读函数 → 操作函数**：
+
+```cpp
+public:
+    // == 下载 ==
+    static KRDLWorker *create(QObject *parent);  // ① 静态：工厂 / 单例 / 工具
+    qreal rate() const;                          // ② 只读：const 方法，getter / isXxx() / 查询
+    bool isRunning() const;
+    void setRate(qreal rate);                    // ③ 操作：setter / 动作，修改状态
+    void startDownload();
+```
+
+成员变量集中在各访问控制节末尾，按功能分组（与函数分组对应），同组内 `k_` 常量 → `s_` 静态 → `m_` 实例：
+
+```cpp
+private:
+    // == 下载 ==
+    static KRDLWorker *s_instance;   // 静态在前
+    qreal m_rate = 1.0;              // 实例在后
+    // == 状态 ==
+    bool m_isRunning = false;
+```
+
+---
+
 ## 文件结构模板
 
 ### .h 文件
