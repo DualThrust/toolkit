@@ -94,13 +94,16 @@ Q_OBJECT → Q_PROPERTY → public → signals → public slots → protected �
 
 ## 头文件组织
 
+- `""` 引号：项目内头文件，先查本文件所在目录（`"Helper.h"`、相对路径 `"../MyClass.h"`）
+- `<>` 尖括号：标准库 / 系统 / Qt 头文件，只在 include 搜索路径查找（`<QObject>`、`<vector>`）
+
 ```cpp
 #pragma once
 
 // include 顺序：自身 → 系统 → 标准库 → Qt → 跨模块 → 同模块
-#include "../MyClass.h"
-#include <QObject>
-#include "Helper.h"
+#include "../MyClass.h"   // "" 项目内
+#include <QObject>        // <> 标准库 / 系统 / Qt
+#include "Helper.h"       // "" 项目内
 
 // 前置声明代替 include
 class QNetworkReply;
